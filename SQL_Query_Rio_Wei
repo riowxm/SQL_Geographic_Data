@@ -1,0 +1,220 @@
+
+--Candidate: Rio Wei
+
+--create 3 tables & import data
+--create table for countrylist
+CREATE TABLE countrylist
+(
+  countryid serial NOT NULL,
+  languagecode character varying(50),
+  countryname character varying(50),
+  countrycode character varying(50),
+  continentid serial NOT NULL
+);
+
+--check country data
+select * from countrylist;
+
+--create table for provinces
+CREATE TABLE provinces
+(
+  country_code character varying(50),
+  country_name character varying(50),
+  province_code character varying(50),
+  province_name character varying(50)
+);
+
+--check province data
+select * from provinces;
+
+--create table for regionlist
+CREATE TABLE regionlist
+(
+  regionid bigserial NOT NULL,
+  regiontype character varying(50),
+  relativesignificance character varying(50),
+  subclass character varying(50),
+  regionname character varying(100),
+  regionnamelong character varying(200),
+  parentregionid bigserial NOT NULL
+);
+
+--check region data
+select * from regionlist;
+
+---------------------------------------------------------------------------
+
+--goal: for each unique regionid, find province info and map country info
+
+--find province_name
+--check regiontype 9 types
+select distinct regiontype from regionlist;
+
+--1.find province when regiontype is 'Multi-City (Vicinity)'
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Multi-City (Vicinity)';
+
+		
+--2.find province when regiontype is 'Province (State)'		
+create temp table region_province as
+select distinct a.*
+from regionlist a
+left join (select parentregionid from regionlist where regiontype='Province (State)')b
+on a.regionid = b.parentregionid
+where a.regiontype = 'Province (State)';
+
+--if parentregionid is '31' then regionnamelong is province
+--if parentregionid is not '31' and it's in regionid, then the second item in regionnamelong is province
+--note that there are some exceptions as regionnamelong = 'Canada'. 
+select * from region_province
+where parentregionid in (select distinct countryid from countrylist)
+union all --use union all instead of union to save running time becase we know there's no duplicated value
+select regionid,
+	   regiontype,
+	   relativesignificance,
+	   subclass,
+	   regionname,
+	   split_part(regionnamelong, ',', 2) as regionnamelong,
+	   parentregionid
+from region_province
+where parentregionid not in (select distinct countryid from countrylist);
+
+--3.find province when regiontype is 'Metro Station'
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 3) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Metro Station';
+
+--4.find province when regiontype is 'Country'
+select regionid, regiontype, relativesignificance, subclass, regionname, regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Country';
+
+--5.find province when regiontype is 'City'
+--Note that there are some exceptions
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'City';
+
+
+--6.find province when regiontype is 'High Level Region'
+--when parentregionid = '31', only two regionnamelong has province info
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'High Level Region';
+
+--7.find province when regiontype is 'Neighborhood'
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 3) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Neighborhood';
+
+--8.find province when regiontype is 'Point of Interest'
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 3) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Point of Interest';
+
+--9.find province when regiontype is 'Train Station'
+--some exceptions
+select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Train Station';
+
+--create new_provinces table where province info are available
+create temp table new_provinces as (
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Multi-City (Vicinity)')
+
+union
+
+(select * from region_province
+where parentregionid in (select distinct countryid from countrylist)
+union all --use union all instead of union to save running time becase we know there's no duplicated value
+select regionid,
+	   regiontype,
+	   relativesignificance,
+	   subclass,
+	   regionname,
+	   split_part(regionnamelong, ',', 2) as regionnamelong,
+	   parentregionid
+from region_province
+where parentregionid not in (select distinct countryid from countrylist))
+							 
+union
+
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 3) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Metro Station')
+
+union
+						
+(select regionid, regiontype, relativesignificance, subclass, regionname, regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Country')
+							 
+union
+							 
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'City')				
+							 
+union
+							 
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'High Level Region')			
+							 
+UNION							 
+							 
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 3) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Neighborhood')							 
+							
+union
+							 
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 3) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Point of Interest')							 
+							 
+union
+							 
+(select regionid, regiontype, relativesignificance, subclass, regionname, split_part(regionnamelong, ',', 2) as regionnamelong, parentregionid
+from regionlist
+where regiontype = 'Train Station')							 
+);
+ 
+ --check new_provinces
+ select * from new_provinces
+ 
+--find province_code
+--note that when split regionnamelong, the sep is ','. This give us a space in regionnamelong
+ create temp table rresult as
+ select c.*, d.countryname as country_name
+ from
+ (select a.regionid as region_id, a.regionname as region_name, a.regionnamelong as province_name, b.province_code, b.country_code
+ from new_provinces a
+ left join provinces b
+ on a.regionnamelong = concat(' ',b.province_name))c
+ --find country_name
+ left join countrylist d on c.country_code = d.countrycode
+
+---------------------------------------------------------------------------
+							  
+--save results
+select * from rresult
+
+--check inaccurate records
+--since in countrylist, there's only 'Canada' -- ignore country_name/country_code is null
+
+select * from rresult
+where province_code is null
+--1533/14749 ~ 10% of the result can't find a direct match from the unique region_id		
+--this is a little bit overestimated because some province_name is from the states and the province code is null because there's no 'USA' in the countrylist
+		
+
+
+
+
+
+
+
